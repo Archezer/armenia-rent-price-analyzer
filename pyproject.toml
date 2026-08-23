@@ -11,6 +11,7 @@ dependencies = [
     "requests>=2.34.2",
     "playwright>=1.52.0",
     "scikit-learn>=1.9.0",
+    "joblib>=1.5.3",
 ]
 
 [tool.pytest.ini_options]
