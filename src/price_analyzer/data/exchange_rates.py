@@ -47,7 +47,7 @@ def fetch_exchange_rate(
             "SOAPAction": "http://www.cba.am/ExchangeRatesByDateByISO",
             "User-Agent": "armenian-price-parser/0.1",
         },
-        timeout=10,
+        timeout=20,
     )
 
     response.raise_for_status()

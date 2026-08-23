@@ -94,6 +94,8 @@ data/raw/
 data/processed/
 data/validated/
 data/cleaned/
+data/interim/
+data/modeling/
 
 # Generated model artifacts
 artifacts/
