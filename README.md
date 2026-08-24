@@ -1,275 +1,221 @@
-# Yerevan Rent Estimator
+# Armenian Rent Price Analyzer
 
-Yerevan Rent Estimator is a learning-focused, production-minded machine-learning
-service for estimating the monthly asking rent of long-term apartments in Yerevan,
-Armenia. The project covers the path from lawful data collection and validation to a
-versioned model artifact and a typed FastAPI inference endpoint.
+A full-stack machine-learning project that estimates the monthly asking rent of a
+long-term apartment in Armenia. The model uses structured listing attributes and
+returns estimates in Armenian dram (AMD).
 
-> **Project status:** collection prototype. An authorized local-browser collector can
-> save rendered public List.am pages with provenance metadata. CSV normalization,
-> training, and the prediction API are not implemented yet.
+**Live application:** [archezer.github.io/armenia-rent-price-analyzer](https://archezer.github.io/armenia-rent-price-analyzer/)
 
-## Problem statement
+**API documentation:** [armenian-rent-estimator-api.onrender.com/docs](https://armenian-rent-estimator-api.onrender.com/docs)
 
-Given the characteristics of an apartment listing, estimate the monthly price at which
-a comparable long-term apartment is advertised in Yerevan.
+## What the application does
 
-The target is **monthly asking rent**, not the final price of a signed lease. Listing
-prices can be stale, negotiable, duplicated, or inaccurate, so predictions must be
-presented as market estimates with documented uncertainty.
+The public interface provides two functions:
 
-The first version will use Armenian dram (`AMD`) as its canonical currency and focus on
-one city to avoid pretending that sparse observations from different Armenian housing
-markets are interchangeable.
+1. **Rent estimate** — predicts monthly asking rent for an apartment using city,
+   district, room count, area, floor, and total floors.
+2. **Lowest estimates** — returns the lowest model-estimated apartment profiles that
+   match optional filters such as city, rooms, area, and maximum budget.
 
-## Learning goals
+The result is an estimate of an advertised long-term rent, not a property appraisal,
+guaranteed price, or financial recommendation.
 
-This project develops practical AI engineering skills:
-
-- converting external data into a validated, traceable dataset;
-- parsing HTML safely and testing parsers against local fixtures;
-- handling numeric, categorical, geographic, and temporal features;
-- detecting duplicates, relisted apartments, currency errors, and outliers;
-- preventing leakage with grouped, time-aware data splits;
-- fitting preprocessing and regression in one scikit-learn pipeline;
-- comparing a transparent baseline with stronger candidate models;
-- serializing the complete fitted pipeline with model metadata;
-- running inference outside Jupyter notebooks;
-- exposing stable request and response contracts with FastAPI and Pydantic;
-- testing data, model, artifact, and HTTP boundaries.
-
-## System flow
+## Architecture
 
 ```text
-permitted source / official API / local HTML fixtures
-    |
-    v
-fetching and HTML parsing
-    |
-    v
-schema validation and provenance metadata
-    |
-    v
-currency normalization and duplicate detection
-    |
-    v
-grouped, time-aware train / validation / test split
-    |
-    v
-scikit-learn preprocessing + regression pipeline
-    |
-    v
-evaluation and versioned artifact
-    |
-    v
-FastAPI: POST /predict
+Public React application
+GitHub Pages
+https://archezer.github.io/armenia-rent-price-analyzer/
+             |
+             | HTTPS JSON requests
+             v
+FastAPI inference service
+Render + Docker
+https://armenian-rent-estimator-api.onrender.com
+             |
+             v
+Serialized scikit-learn pipeline
+Random forest + fitted preprocessing
 ```
 
-Fetching and parsing are deliberately separate. A parser consumes stored HTML and can
-therefore be tested without repeatedly contacting a third-party service.
+The frontend contains no dataset or trained model. It is a static Vite/React build
+published through GitHub Actions. The API image trains the model from the sanitized
+public dataset during its Docker build, persists the artifact inside the image, and
+loads it once when the service starts.
 
-## Data collection laboratory
+## Model and evaluation
 
-The repository includes an educational collection laboratory covering HTTP clients,
-local browser rendering, DOM selectors, pagination, rate limiting, provenance, schema
-drift, and fixture-based parser tests.
+The model is a scikit-learn `Pipeline` containing:
 
-The current successful target is:
+- a `ColumnTransformer` that preprocesses numeric and categorical features;
+- categorical encoding with safe handling for categories not seen during training;
+- a `RandomForestRegressor` selected after validation and Optuna hyperparameter search.
+
+| Item | Value |
+|---|---:|
+| Model version | `1.0.0` |
+| Dataset rows | 582 |
+| Train rows | 348 |
+| Validation rows | 117 |
+| Reserved test rows | 117 |
+| Final test MAE | 79,208.43 AMD |
+
+MAE (*mean absolute error*) means that, on the reserved test set, the average absolute
+difference between the predicted and listed monthly price was about 79 thousand AMD.
+The test set was kept separate from hyperparameter selection; it is reported as a final
+evaluation, not used to choose a better model.
+
+### Input features
 
 ```text
-https://www.list.am/en/category/56?q=yerevan
+city, district, rooms, area_sqm, floor, total_floors
 ```
 
-The first saved page contained roughly 96 listing cards. A second page was collected
-from `https://www.list.am/category/56/2?q=yerevan` and contained roughly 103 unique
-listing IDs. Available fields include listing ID and URL, price, currency, monthly
-period, district, rooms, area in square metres, floor, total floors, title, and some
-optional descriptive flags.
+The target is `price_amd`: monthly listing price normalized to AMD.
 
-The browser collector saves rendered HTML and a JSON sidecar with URL, retrieval time,
-content type, and SHA-256 hash. Raw pages may contain analytics or IP data and must
-not be committed or published. The normalized CSV must retain only modeling fields
-and necessary provenance.
+## Data
 
-Run a bounded collection with:
+The public dataset is [`data/public/listings.csv`](data/public/listings.csv). It has
+582 sanitized rental-listing records:
+
+| City | Records |
+|---|---:|
+| Yerevan | 396 |
+| Gyumri | 186 |
+
+Raw HTML, original page URLs, listing text, and generated training artifacts are
+excluded from Git. The collection work was performed for the student project with
+written permission from the source. The collector does not bypass CAPTCHA, rate limits,
+or other access controls; a visible browser challenge must be completed manually when
+authorized.
+
+## API
+
+The FastAPI service exposes:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Confirms that the service and model are ready. |
+| `POST` | `/predict` | Returns one estimated monthly rent. |
+| `POST` | `/recommendations` | Returns low-estimate profiles matching filters. |
+
+Example prediction request:
+
+```json
+{
+  "city": "Yerevan",
+  "district": "Kentron",
+  "rooms": 2,
+  "area_sqm": 60,
+  "floor": 3,
+  "total_floors": 9
+}
+```
+
+Example response:
+
+```json
+{
+  "predicted_monthly_rent_amd": 421517,
+  "currency": "AMD",
+  "model_version": "1.0.0"
+}
+```
+
+Request validation is implemented with Pydantic. For example, an apartment floor cannot
+be greater than the building's `total_floors`; malformed input receives a standard HTTP
+validation error instead of reaching the model.
+
+## Local development
+
+### Backend
+
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), and Docker for the
+containerized run.
+
+Install dependencies and run tests:
 
 ```powershell
-$env:PYTHONPATH = "src"
-uv run playwright install chromium
-uv run python -m price_analyzer.collection.browser_cli `
-  "https://www.list.am/category/56/3?q=yerevan" `
-  --pages 3 --output data/raw
+uv sync
+uv run pytest -q
 ```
 
-If a browser challenge appears, it may only be completed manually under the written
-project authorization. The code must not automate CAPTCHA solving or extract tokens.
+Build and run the complete reproducible API image:
 
-Educational or non-commercial use does not automatically permit automated access.
-Booking.com explicitly prohibits scraping its live platform without prior express
-permission. Consequently, this project will not crawl Booking.com pages or attempt to
-evade bot controls. Booking-style extraction will be learned using synthetic or locally
-stored HTML fixtures. Authorized real Booking data may be explored through the official
-[Booking.com Demand API](https://developers.booking.com/demand/docs/getting-started/overview).
-
-Booking prices describe short-term accommodation for specific dates, guests, inventory,
-fees, and cancellation terms. They are not labels for the long-term-rent model. A future
-temporary-stay estimator may use them as a separate dataset and product.
-
-Any real long-term-rental source must be reviewed for:
-
-- terms of service and automated-access rules;
-- API or export availability;
-- copyright and dataset licensing;
-- personal information and redistribution constraints;
-- stable identifiers and collection provenance.
-
-Raw third-party pages and datasets will not be committed unless their license clearly
-allows redistribution.
-
-## Intended feature contract
-
-The final schema will follow the selected dataset. An illustrative request is:
-
-```json
-{
-  "district": "Arabkir",
-  "area_sqm": 62.0,
-  "rooms": 2,
-  "floor": 5,
-  "total_floors": 12,
-  "building_type": "new_construction",
-  "renovation_condition": "modern",
-  "furnished": true,
-  "listing_date": "2026-08-19"
-}
+```powershell
+docker build -t armenian-rent-estimator .
+docker run --rm -p 8000:8000 armenian-rent-estimator
 ```
 
-Illustrative response:
+Then open `http://localhost:8000/docs`.
 
-```json
-{
-  "estimated_monthly_rent": 280000.0,
-  "likely_range": {
-    "lower": 245000.0,
-    "upper": 325000.0
-  },
-  "currency": "AMD",
-  "market": "Yerevan long-term rental listings",
-  "model_version": "0.1.0"
-}
+### Frontend
+
+Requirements: Node.js 22+ and pnpm 11+.
+
+```powershell
+cd frontend
+pnpm install
+pnpm run lint
+pnpm run dev
 ```
 
-The uncertainty range is a product requirement, although the exact interval method
-will be chosen only after a trustworthy baseline exists.
+Vite serves the application at
+`http://localhost:5173/armenia-rent-price-analyzer/`. The public API URL is configured
+through `VITE_API_BASE_URL`; see [`frontend/.env.example`](frontend/.env.example).
 
-Planned endpoints:
+Create an optimized static build with:
 
-- `GET /health` reports application and artifact readiness.
-- `POST /predict` validates apartment characteristics and returns one rent estimate.
+```powershell
+pnpm run build
+```
 
-## Evaluation strategy
+## Deployment
 
-Random row splitting is unsafe for marketplace listings. The same apartment can be
-posted repeatedly or by multiple agencies, allowing near-duplicates to appear on both
-sides of a naive split. The project will group probable duplicates and evaluate on a
-later time period.
+- The backend is deployed to Render from [`Dockerfile`](Dockerfile) and
+  [`render.yaml`](render.yaml).
+- The frontend is built and deployed to GitHub Pages by
+  [`.github/workflows/deploy-frontend.yml`](.github/workflows/deploy-frontend.yml) on
+  every push to `master` that changes frontend files.
+- Render must set `CORS_ALLOWED_ORIGINS=https://archezer.github.io` so browsers may make
+  requests from the Pages origin. The path is not part of a CORS origin.
 
-| Split | Purpose |
-|---|---|
-| Train | Fit preprocessing statistics and model parameters on earlier listings. |
-| Validation | Compare approaches and make tuning decisions. |
-| Test | Evaluate once on the latest held-out period. |
-
-Mean absolute error (`MAE`) in AMD is the planned primary metric. Results will also be
-broken down by district and price segment so an acceptable global score cannot hide
-systematic failures. A median-rent baseline must be established before complex models
-are introduced.
-
-## Planned project structure
+## Project structure
 
 ```text
-.
-|-- app/                              # FastAPI transport and lifecycle
-|-- src/price_analyzer/
-|   |-- collection/                   # permitted clients and HTML parsers
-|   |-- data/                         # validation and dataset construction
-|   |-- features/                     # preprocessing definitions
-|   |-- modeling/                     # training, evaluation, persistence
-|   `-- inference/                    # framework-independent prediction
-|-- tests/
-|   |-- fixtures/html/                # synthetic or authorized HTML samples
-|   |-- unit/
-|   `-- integration/
-|-- data/                             # local data; not automatically distributable
-|-- artifacts/                        # generated pipelines and metadata
-|-- AGENTS.md                         # engineering and teaching rules
-|-- pyproject.toml
-`-- README.md
+app/                         FastAPI application, routes, schemas, configuration
+src/price_analyzer/
+  collection/                Permitted collection and HTML parsing utilities
+  data/                      Dataset cleaning and validation
+  features/                  Preprocessing definition
+  inference/                 Framework-independent prediction and recommendations
+  modeling/                  Training, evaluation, and artifact persistence
+data/public/listings.csv     Sanitized publishable dataset
+frontend/                    Vite + React client
+tests/                       Unit and integration tests
+Dockerfile                   Reproducible backend image
+render.yaml                  Render deployment specification
 ```
 
-Directories will be added with working vertical slices rather than as empty
-placeholders.
+## Limitations and responsible use
 
-## Initial implementation plan
+- The dataset is small and covers only the observed listing period and locations.
+- Prices are advertised asking rents, which may be stale, duplicated, negotiable, or
+  inaccurate.
+- The model has no exact address, condition, renovation, furnishing, photo, or building
+  features, so it cannot capture every property difference.
+- Results should be used for education and rough market exploration only.
+- The repository has no code license yet; reuse and redistribution rights should not be
+  assumed. Third-party data remains subject to its own terms.
 
-1. Define the listing schema, target semantics, supported cities, and data-quality
-   rules.
-2. Build synthetic Booking-like HTML fixtures and a pure, tested listing parser.
-3. Add a permitted-source HTTP client and local-browser transport with timeouts,
-   conservative rate limits, provenance metadata, and raw-response size limits.
-4. Obtain a lawful long-term-rental dataset and create a reproducible dataset snapshot.
-5. Normalize currencies and categories, then detect duplicate or relisted apartments.
-6. Create grouped, time-aware train, validation, and test sets.
-7. Train a median baseline and a scikit-learn preprocessing/regression pipeline.
-8. Evaluate overall, by district, and by price segment; add an uncertainty strategy.
-9. Serialize the fitted pipeline and metadata, then implement framework-independent
-   inference.
-10. Add FastAPI `/health` and `/predict`, integration tests, and verified run commands.
+## Verification
 
-## Development
+The latest local verification completed successfully:
 
-The repository requires Python 3.12 or newer and uses `pyproject.toml` for package
-metadata. The browser command is a raw-page smoke test; deterministic parsing and CSV
-export remain separate steps.
+```text
+15 passed, 8 warnings
+```
 
-## Public web application
-
-The backend is a Dockerized FastAPI service deployed independently from the browser
-client. The React frontend lives in [`frontend/`](frontend/), calls the public API, and
-is built as static files for GitHub Pages. Its deployment workflow is
-[`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml). The API must allow the
-Pages origin through `CORS_ALLOWED_ORIGINS`; this is required because the browser client
-and API use different domains.
-
-## Market scope: Yerevan and Gyumri
-
-The first baseline should remain Yerevan-only. Gyumri can be added later, but every
-record must include an explicit `city` field and evaluation must be reported by city.
-Otherwise the model may learn an unobserved market difference and produce misleading
-errors. The recommended experiment is one multi-city model with `city` as a categorical
-feature, compared against a Yerevan-only baseline. Separate city models are an option
-only if each city has enough observations.
-
-## Limitations and ethics
-
-- Predictions represent advertised prices, not completed rental transactions.
-- Market coverage will initially be limited to Yerevan and the collection period.
-- Duplicate, fraudulent, stale, and selectively advertised listings can bias results.
-- Exact addresses, contact information, cookies, and account data are unnecessary for
-  the model and must not be collected.
-- A prediction is not a guaranteed rent, appraisal, or financial recommendation.
-- Model and dataset documentation must disclose source, license, dates, exclusions,
-  exchange-rate policy, and known gaps.
-
-## Contributing
-
-This is an educational project. Changes should remain small, testable, and consistent
-with [`AGENTS.md`](AGENTS.md). Source code, API contracts, documentation, tests, and
-commit messages are written in professional English for an international audience;
-teaching explanations may be provided in Russian.
-
-## License
-
-No code license has been selected. Until a license file is added, reuse and
-redistribution rights should not be assumed. Third-party data remains governed by its
-own terms regardless of the future code license.
+The warnings originate in third-party testing and serialization dependencies; the test
+suite itself passed. It covers parsing, data/model artifact persistence, recommendations,
+API validation, health readiness, and CORS preflight behavior.

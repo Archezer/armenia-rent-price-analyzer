@@ -13,7 +13,7 @@ pnpm install
 pnpm run dev
 ```
 
-Vite serves the application at `/price-analyzer/`, matching the GitHub Pages
+Vite serves the application at `/armenia-rent-price-analyzer/`, matching the GitHub Pages
 repository path. Copy `.env.example` to `.env.local` to override the public API URL
 for local development. `.env.local` is intentionally ignored by Git.
 
