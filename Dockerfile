@@ -24,9 +24,15 @@ RUN uv sync \
 COPY README.md ./
 COPY app ./app
 COPY src ./src
-COPY artifacts ./artifacts
+COPY data/public ./data/public
 
 RUN uv sync --locked --no-editable
+
+RUN python -m \
+    price_analyzer.data.prepare_modeling_dataset
+
+RUN python -m \
+    price_analyzer.modeling.train_final_model
 
 EXPOSE 8000
 
@@ -38,6 +44,8 @@ urllib.request.urlopen(\
 'http://127.0.0.1:8000/health'\
 )"
 
-CMD ["sh"\
-,"-c"\
-,"uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD [ \
+"sh", \
+"-c", \
+"uvicorn app.main:app --host 0.0.0.0 --port ${PORT}" \
+]
