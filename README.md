@@ -232,6 +232,15 @@ The repository requires Python 3.12 or newer and uses `pyproject.toml` for packa
 metadata. The browser command is a raw-page smoke test; deterministic parsing and CSV
 export remain separate steps.
 
+## Public web application
+
+The backend is a Dockerized FastAPI service deployed independently from the browser
+client. The React frontend lives in [`frontend/`](frontend/), calls the public API, and
+is built as static files for GitHub Pages. Its deployment workflow is
+[`deploy-frontend.yml`](.github/workflows/deploy-frontend.yml). The API must allow the
+Pages origin through `CORS_ALLOWED_ORIGINS`; this is required because the browser client
+and API use different domains.
+
 ## Market scope: Yerevan and Gyumri
 
 The first baseline should remain Yerevan-only. Gyumri can be added later, but every

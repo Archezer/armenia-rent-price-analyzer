@@ -155,3 +155,38 @@ def test_recommendations_return_matching_profiles(
         item["estimated_monthly_rent_amd"] == 250000
         for item in payload["recommendations"]
     )
+
+
+def test_cors_preflight_allows_local_frontend(
+    client: TestClient,
+) -> None:
+    response = client.options(
+        "/predict",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers[
+        "access-control-allow-origin"
+    ] == "http://localhost:5173"
+    assert "POST" in response.headers[
+        "access-control-allow-methods"
+    ]
+
+
+def test_cors_preflight_rejects_unknown_origin(
+    client: TestClient,
+) -> None:
+    response = client.options(
+        "/predict",
+        headers={
+            "Origin": "https://untrusted.example",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 400
