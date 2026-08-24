@@ -15,6 +15,11 @@ export type PredictionResponse = {
   model_version: string
 }
 
+export type HealthResponse = {
+  status: 'OK'
+  model_version: string
+}
+
 export type RecommendationRequest = {
   city: City
   rooms?: number
@@ -52,6 +57,18 @@ export function getRecommendations(
   payload: RecommendationRequest,
 ): Promise<RecommendationResponse> {
   return postJson('/recommendations', payload)
+}
+
+export async function checkApiHealth(): Promise<HealthResponse> {
+  const response = await fetch(`${API_BASE_URL}/health`, {
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw new Error(`The API returned HTTP ${response.status}.`)
+  }
+
+  return response.json() as Promise<HealthResponse>
 }
 
 async function postJson<Response>(path: string, payload: unknown): Promise<Response> {

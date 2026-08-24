@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
+  checkApiHealth,
   getRecommendations,
   predictRent,
   type City,
@@ -35,6 +36,32 @@ function App() {
   const [recommendationError, setRecommendationError] = useState<string | null>(null)
   const [isPredicting, setIsPredicting] = useState(false)
   const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false)
+  const [apiStatus, setApiStatus] = useState<
+    'starting' | 'ready' | 'unavailable'
+  >('starting')
+  const healthCheckStarted = useRef(false)
+
+  const refreshApiStatus = useCallback(async () => {
+    setApiStatus('starting')
+
+    try {
+      await checkApiHealth()
+      setApiStatus('ready')
+    } catch {
+      setApiStatus('unavailable')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (healthCheckStarted.current) {
+      return
+    }
+
+    healthCheckStarted.current = true
+    void refreshApiStatus()
+  }, [refreshApiStatus])
+
+  const isApiReady = apiStatus === 'ready'
 
   async function handlePrediction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -93,6 +120,32 @@ function App() {
         </p>
       </header>
 
+      <section
+        className={`api-status api-status--${apiStatus}`}
+        aria-live="polite"
+      >
+        {apiStatus === 'starting' && (
+          <>
+            <span className="loader" aria-hidden="true" />
+            <p>
+              Connecting to the demo API. Free hosting can take around a minute
+              after inactivity.
+            </p>
+          </>
+        )}
+
+        {apiStatus === 'ready' && <p>● Demo API is ready.</p>}
+
+        {apiStatus === 'unavailable' && (
+          <>
+            <p>The demo API could not be reached. It may still be starting.</p>
+            <button type="button" onClick={() => void refreshApiStatus()}>
+              Try again
+            </button>
+          </>
+        )}
+      </section>
+
       <section className="tool-grid" aria-label="Rental estimation tools">
         <article className="panel">
           <div className="panel-heading">
@@ -107,7 +160,7 @@ function App() {
             <NumberField label="Area, m²" value={predictionForm.areaSqm} min="1" max="1000" onChange={(areaSqm) => setPredictionForm({ ...predictionForm, areaSqm })} />
             <NumberField label="Floor" value={predictionForm.floor} min="0" max="200" onChange={(floor) => setPredictionForm({ ...predictionForm, floor })} />
             <NumberField label="Total floors" value={predictionForm.totalFloors} min="1" max="200" onChange={(totalFloors) => setPredictionForm({ ...predictionForm, totalFloors })} />
-            <button type="submit" disabled={isPredicting}>{isPredicting ? 'Estimating…' : 'Estimate rent'}</button>
+            <button type="submit" disabled={isPredicting || !isApiReady}>{!isApiReady ? 'Waiting for API…' : isPredicting ? 'Estimating…' : 'Estimate rent'}</button>
           </form>
           <ResultMessage error={predictionError}>{prediction && <div className="estimate-result"><span>Estimated monthly rent</span><strong>{formatAmd(prediction.predicted_monthly_rent_amd)}</strong><small>Model {prediction.model_version}</small></div>}</ResultMessage>
         </article>
@@ -124,7 +177,7 @@ function App() {
             <NumberField label="Minimum area, m²" value={recommendationForm.minAreaSqm} min="1" max="1000" required={false} onChange={(minAreaSqm) => setRecommendationForm({ ...recommendationForm, minAreaSqm })} />
             <NumberField label="Maximum area, m²" value={recommendationForm.maxAreaSqm} min="1" max="1000" required={false} onChange={(maxAreaSqm) => setRecommendationForm({ ...recommendationForm, maxAreaSqm })} />
             <NumberField label="Maximum budget, AMD" value={recommendationForm.maxBudgetAmd} min="1" required={false} onChange={(maxBudgetAmd) => setRecommendationForm({ ...recommendationForm, maxBudgetAmd })} />
-            <button type="submit" disabled={isLoadingRecommendations}>{isLoadingRecommendations ? 'Searching…' : 'Show lowest estimates'}</button>
+            <button type="submit" disabled={isLoadingRecommendations || !isApiReady}>{!isApiReady ? 'Waiting for API…' : isLoadingRecommendations ? 'Searching…' : 'Show lowest estimates'}</button>
           </form>
           <ResultMessage error={recommendationError}>{recommendations.length > 0 && <ol className="recommendation-list">{recommendations.map((item) => <li key={`${item.city}-${item.district}-${item.rooms}-${item.area_sqm}-${item.floor}`}><div><strong>{item.district}</strong><span>{item.rooms} rooms · {item.area_sqm} m² · floor {item.floor}/{item.total_floors}</span></div><b>{formatAmd(item.estimated_monthly_rent_amd)}</b></li>)}</ol>}</ResultMessage>
         </article>
